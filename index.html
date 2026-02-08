@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal Bosque · Registro de Horarios</title>
+  <link rel="manifest" href="manifest.json">
+  <style>
+    *{box-sizing:border-box}
+    body{
+      margin:0;
+      font-family:system-ui,sans-serif;
+      background:#f0f7f4 url('logo-portal-bosque.png') no-repeat center/60%;
+      color:#0f172a;
+      min-height:100vh;
+      display:flex;
+      justify-content:center;
+      align-items:center;
+    }
+    .panel{
+      background:#ffffff;
+      width:100%;
+      max-width:520px;
+      padding:2rem;
+      border-radius:14px;
+      box-shadow:0 20px 40px rgba(0,0,0,.1);
+    }
+    h1{text-align:center;margin:.2rem 0}
+    .subtitle{text-align:center;color:#64748b;margin-bottom:1rem;font-size:.9rem}
+    input,button{width:100%;padding:.75rem;margin-bottom:.7rem;border-radius:8px;border:1px solid #cbd5f5;font-size:.95rem}
+    input:focus{outline:none;border-color:#2563eb}
+    button{background:#14532d;color:#fff;border:none;font-weight:600;cursor:pointer}
+    button:hover{background:#166534}
+    .link{background:none;color:#475569;border:none;cursor:pointer}
+    .danger{color:#b91c1c}
+    .hidden{display:none}
+    .grid{display:grid;grid-template-columns:1fr 1fr;gap:1rem}
+    table{width:100%;border-collapse:collapse;margin-top:1rem;font-size:.85rem}
+    th,td{padding:.55rem;border-bottom:1px solid #e2e8f0;text-align:center}
+    th{background:#f1f5f9}
+    .total-box{background:#dcfce7;border:1px solid #86efac;color:#14532d;font-weight:700;text-align:center;margin-top:1.2rem;padding:1rem;border-radius:10px}
+    .notice{background:#ecfeff;border:1px solid #67e8f9;color:#0f766e;font-size:.85rem;text-align:center;margin-bottom:1rem;padding:.6rem;border-radius:8px}
+  </style>
+</head>
+<body>
+<div class="panel">
+
+  <!-- LOGIN / REGISTRO -->
+  <div id="auth">
+    <h1>Portal Bosque</h1>
+    <p class="subtitle">Registro de horarios del personal · Maldonado, Uruguay</p>
+    <div id="authNotice" class="notice hidden"></div>
+    <input id="userEmail" placeholder="Correo electrónico" />
+    <input id="userPass" type="password" placeholder="Contraseña" />
+    <button id="btnLogin">Ingresar</button>
+    <button class="link" id="btnRegister">Crear cuenta</button>
+  </div>
+
+  <!-- APP -->
+  <div id="app" class="hidden">
+    <h1 id="welcome"></h1>
+    <p class="subtitle">Ingresá los horarios manualmente</p>
+
+    <div id="appNotice" class="notice hidden"></div>
+
+    <input type="month" id="mes" />
+    <input type="date" id="fecha" />
+
+    <div class="grid">
+      <div>
+        <label style="font-size:0.75rem;color:#475569">Entrada</label>
+        <input type="time" id="entrada" />
+      </div>
+      <div>
+        <label style="font-size:0.75rem;color:#475569">Salida</label>
+        <input type="time" id="salida" />
+      </div>
+    </div>
+
+    <button id="btnGuardar">Guardar jornada</button>
+
+    <table>
+      <thead>
+        <tr>
+          <th>Fecha</th>
+          <th>Entrada</th>
+          <th>Salida</th>
+          <th>Horas</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody id="tabla"></tbody>
+    </table>
+
+    <div id="total" class="total-box"></div>
+
+    <button id="btnShare">Compartir horario por WhatsApp</button>
+
+    <button class="link danger" id="btnDelete">Eliminar cuenta</button>
+    <div id="deleteConfirm" class="notice hidden">
+      ⚠️ Estás a punto de eliminar tu cuenta. Esta acción es permanente.
+      <div style="margin-top:0.5rem;display:flex;gap:0.5rem;justify-content:center">
+        <button id="btnConfirmDelete" class="danger">Eliminar definitivamente</button>
+        <button id="btnCancelDelete" class="link">Cancelar</button>
+      </div>
+    </div>
+
+    <button class="link" id="btnLogout">Cerrar sesión</button>
+  </div>
+</div>
+
+<!-- Firebase JS -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, signOut } from "https://www.gstatic.com/firebasejs/10.1.0/firebase-auth.js";
+
+// 🔑 Tu configuración de Firebase
+const firebaseConfig = {
+  apiKey: "TU_API_KEY",
+  authDomain: "TU_PROYECTO.firebaseapp.com",
+  projectId: "TU_PROYECTO",
+  storageBucket: "TU_PROYECTO.appspot.com",
+  messagingSenderId: "TU_MESSAGING_SENDER_ID",
+  appId: "TU_APP_ID"
+};
+
+// Inicializar Firebase
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+
+// Elementos
+const emailInput = document.getElementById('userEmail');
+const passInput = document.getElementById('userPass');
+const authDiv = document.getElementById('auth');
+const appDiv = document.getElementById('app');
+const tabla = document.getElementById('tabla');
+const welcome = document.getElementById('welcome');
+const fecha = document.getElementById('fecha');
+const entrada = document.getElementById('entrada');
+const salida = document.getElementById('salida');
+const mes = document.getElementById('mes');
+const total = document.getElementById('total');
+const authNotice = document.getElementById('authNotice');
+const appNotice = document.getElementById('appNotice');
+let currentUser = null;
+let logsDB = {}; // Guarda logs en localStorage por usuario
+
+// Fecha inicial
+const now = new Date();
+mes.value = now.toISOString().slice(0,7);
+fecha.value = now.toISOString().slice(0,10);
+
+// Avisos
+function notice(msg){
+  const el = currentUser ? appNotice : authNotice;
+  el.textContent = msg;
+  el.classList.remove('hidden');
+  setTimeout(()=>el.classList.add('hidden'),3000);
+}
+
+// FIREBASE AUTH - Registro
+document.getElementById('btnRegister').onclick = () => {
+  const email = emailInput.value;
+  const pass = passInput.value;
+  if(!email||!pass){ notice('Completa los datos'); return; }
+  createUserWithEmailAndPassword(auth, email, pass)
+    .then((cred)=>{
+      currentUser = cred.user;
+      logsDB[currentUser.uid] = [];
+      localStorage.setItem('logsDB', JSON.stringify(logsDB));
+      notice('✅ Cuenta creada correctamente');
+      showApp();
+    })
+    .catch((err)=> notice(err.message));
+};
+
+// FIREBASE AUTH - Login
+document.getElementById('btnLogin').onclick = () => {
+  const email = emailInput.value;
+  const pass = passInput.value;
+  signInWithEmailAndPassword(auth,email,pass)
+    .then((cred)=>{
+      currentUser = cred.user;
+      // Cargar logs
+      const saved = localStorage.getItem('logsDB');
+      if(saved) logsDB = JSON.parse(saved);
+      if(!logsDB[currentUser.uid]) logsDB[currentUser.uid] = [];
+      showApp();
+    })
+    .catch((err)=> notice(err.message));
+};
+
+// Logout
+document.getElementById('btnLogout').onclick = ()=>{
+  signOut(auth);
+  currentUser = null;
+  authDiv.classList.remove('hidden');
+  appDiv.classList.add('hidden');
+};
+
+// Guardar jornada
+document.getElementById('btnGuardar').onclick = ()=>{
+  if(!fecha.value||!entrada.value||!salida.value){ notice('Completa los datos'); return; }
+  const [ih,im]=entrada.value.split(':').map(Number);
+  const [oh,om]=salida.value.split(':').map(Number);
+  if((oh*60+om)-(ih*60+im)<=0){ notice('La salida debe ser mayor que la entrada'); return; }
+  const log = { f: fecha.value, i: entrada.value, o: salida.value };
+  logsDB[currentUser.uid].unshift(log);
+  localStorage.setItem('logsDB', JSON.stringify(logsDB));
+  render();
+  entrada.value=''; salida.value='';
+};
+
+// Renderizar tabla
+function diff(i,o){
+  const [ih,im]=i.split(':').map(Number);
+  const [oh,om]=o.split(':').map(Number);
+  return (oh*60+om)-(ih*60+im);
+}
+function fmt(m){ const h=Math.floor(m/60); const mm=m%60; return String(h).padStart(2,'0')+':'+String(mm).padStart(2,'0')+' hs'; }
+function render(){
+  tabla.innerHTML='';
+  let tot=0, mesTot=0;
+  logsDB[currentUser.uid].forEach((l,i)=>{
+    if(mes.value&&!l.f.startsWith(mes.value)) return;
+    const mins = diff(l.i,l.o);
+    tot+=mins; mesTot+=mins;
+    tabla.innerHTML+=`<tr>
+      <td>${l.f.split('-').reverse().join('-')}</td>
+      <td>${l.i}</td>
+      <td>${l.o}</td>
+      <td><strong>${fmt(mins)}</strong></td>
+      <td><button class="link" onclick="del(${i})">✕</button></td>
+    </tr>`;
+  });
+  const name = mes.value? new Date(mes.value+'-01').toLocaleDateString('es-ES',{month:'long',year:'numeric'}):'todos los meses';
+  total.textContent=`Total ${name}: ${fmt(mesTot)} | General: ${fmt(tot)}`;
+}
+
+// Borrar registro
+window.del=(i)=>{
+  logsDB[currentUser.uid].splice(i,1);
+  localStorage.setItem('logsDB',JSON.stringify(logsDB));
+  render();
+};
+
+// Eliminar cuenta
+document.getElementById('btnDelete').onclick=()=>{ document.getElementById('deleteConfirm').classList.remove('hidden'); };
+document.getElementById('btnConfirmDelete').onclick=()=>{
+  delete logsDB[currentUser.uid];
+  localStorage.setItem('logsDB',JSON.stringify(logsDB));
+  signOut(auth);
+  currentUser=null;
+  document.getElementById('deleteConfirm').classList.add('hidden');
+  authDiv.classList.remove('hidden'); appDiv.classList.add('hidden');
+  notice('Cuenta eliminada correctamente');
+};
+document.getElementById('btnCancelDelete').onclick=()=>{ document.getElementById('deleteConfirm').classList.add('hidden'); };
+
+// Compartir WhatsApp
+document.getElementById('btnShare').onclick=()=>{
+  const phone = prompt('Ingresá el número de celular (con código país, ej: 5989XXXXXXX):');
+  if(!phone) return;
+  let text=`🕒 *Horario Portal Bosque*\nEmpleado: ${currentUser.email}\nMes: ${mes.value}\n\n`;
+  let totalMin=0;
+  logsDB[currentUser.uid].forEach(l=>{
+    if(mes.value&&!l.f.startsWith(mes.value)) return;
+    const mins=diff(l.i,l.o); totalMin+=mins;
+    text+=`📅 ${l.f} | ${l.i} - ${l.o} (${fmt(mins)})\n`;
+  });
+  text+=`\n✅ Total del mes: ${fmt(totalMin)}`;
+  window.open(`https://wa.me/${phone}?text=`+encodeURIComponent(text),'_blank');
+};
+
+function showApp(){
+  authDiv.classList.add('hidden');
+  appDiv.classList.remove('hidden');
+  welcome.textContent='Usuario: '+currentUser.email;
+  render();
+}
+</script>
+</body>
+</html>
